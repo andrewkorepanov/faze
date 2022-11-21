@@ -28,25 +28,13 @@ from frame_processor import frame_processer
 # Start camera
 #################################
 
-cam_idx = 0
-
-# adjust these for your camera to get the best accuracy
-call('v4l2-ctl -d /dev/video%d -c brightness=100' % cam_idx, shell=True)
-call('v4l2-ctl -d /dev/video%d -c contrast=50' % cam_idx, shell=True)
-call('v4l2-ctl -d /dev/video%d -c sharpness=100' % cam_idx, shell=True)
-
-cam_cap = cv2.VideoCapture(cam_idx)
-cam_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cam_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # calibrate camera
 cam_calib = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
-if path.exists("calib_cam%d.pkl" % (cam_idx)):
-    cam_calib = pickle.load(open("calib_cam%d.pkl" % (cam_idx), "rb"))
+if path.exists("calib_cam0.pkl"):
+    cam_calib = pickle.load(open("calib_cam0.pkl", "rb"))
 else:
-    print("Calibrate camera once. Print pattern.png, paste on a clipboard, show to camera and capture non-blurry images in which points are detected well.")
-    print("Press s to save frame, c to continue, q to quit")
-    cam_calibrate(cam_idx, cam_cap, cam_calib)
+    sys.exit('ERR: No calibration file!')
 
 #################################
 # Load gaze network
@@ -107,14 +95,23 @@ frame_processor = frame_processer(cam_calib)
 
 # collect person calibration data and fine-
 # tune gaze network
-subject = input('Enter subject name: ')
-data = collect_data(cam_cap, mon, calib_points=9, rand_points=4)
+data = collect_data(mon)
 # adjust steps and lr for best results
 # To debug calibration, set show=True
-gaze_network = fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-5, show=False)
+gaze_network = fine_tune(data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-5, show=False)
 
 #################################
 # Run on live webcam feed and
 # show point of regard on screen
 #################################
-data = frame_processor.process(subject, cam_cap, mon, device, gaze_network, show=True)
+# open calibration file
+video_path = './calibration/video.webm'
+
+cap = cv2.VideoCapture(video_path)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+if cap.isOpened():
+    data = frame_processor.process_video(cap, mon, device, gaze_network, show=True)
+else:
+    print("Can not open video file")

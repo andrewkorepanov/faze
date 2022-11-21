@@ -8,6 +8,7 @@
 
 import cv2
 import numpy as np
+import pandas as pd
 import random
 import threading
 import pickle
@@ -69,109 +70,64 @@ def create_image(mon, direction, i, color, target='E', grid=True, total=9):
     return img, g_t
 
 
-def grab_img(cap):
-    global THREAD_RUNNING
-    global frames
-    while THREAD_RUNNING:
-        _, frame = cap.read()
-        frames.append(frame)
+def collect_data(mon) -> dict:
 
-
-def collect_data(cap, mon, calib_points=9, rand_points=5):
-    global THREAD_RUNNING
-    global frames
-
-    cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    CALIBRATION_EVENTS_PATH = './calibration/calibration.csv'
+    CALIBRATION_VIDEO_PATH = './calibration/calibration.webm'
 
     calib_data = {'frames': [], 'g_t': []}
 
-    i = 0
-    while i < calib_points:
+    # calibration events
+    calibration_events = pd.read_csv(CALIBRATION_EVENTS_PATH, float_precision='round_trip')
+    print(calibration_events)
 
-        # Start the sub-thread, which is responsible for grabbing images
+    # open calibration video
+    cap = cv2.VideoCapture(CALIBRATION_VIDEO_PATH)
+    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    if not cap.isOpened():
+        print('Can not open the calibration video')
+        return calib_data
+
+    timestamp = 0
+
+    for i, row in calibration_events.iterrows():
+        # raw data
+        start_time, end_time = row['StartTimestamp'], row['EndTimestamp'] 
+        x, y = row['Left'], row['Top'] 
+        # in the camera coordinate system
+        x_cam, y_cam, z_cam = mon.monitor_to_camera(x, y)
+        g_t = (x_cam, y_cam)
+
+        print(f'START: {start_time}, END: {end_time}')
+
         frames = []
-        THREAD_RUNNING = True
-        th = threading.Thread(target=grab_img, args=(cap,))
-        th.start()
-        direction = random.choice(directions)
-        img, g_t = create_image(mon, direction, i, (0, 0, 0), grid=True, total=calib_points)
-        cv2.imshow('image', img)
-        key_press = cv2.waitKey(0)
-        if key_press == keys[direction]:
-            THREAD_RUNNING = False
-            th.join()
+        while timestamp < end_time: 
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+            if timestamp > start_time:
+                frames.append(frame)
+
+        if len(frames) > 0:
             calib_data['frames'].append(frames)
             calib_data['g_t'].append(g_t)
-            i += 1
-        elif key_press & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-        else:
-            THREAD_RUNNING = False
-            th.join()
-
-    i = 0
-    while i < rand_points:
-
-        # Start the sub-thread, which is responsible for grabbing images
-        frames = []
-        THREAD_RUNNING = True
-        th = threading.Thread(target=grab_img, args=(cap,))
-        th.start()
-        direction = random.choice(directions)
-        img, g_t = create_image(mon, direction, i, (0, 0, 0), grid=False, total=rand_points)
-        cv2.imshow('image', img)
-        key_press = cv2.waitKey(0)
-        if key_press == keys[direction]:
-            THREAD_RUNNING = False
-            th.join()
-            calib_data['frames'].append(frames)
-            calib_data['g_t'].append(g_t)
-            i += 1
-        elif key_press & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-        else:
-            THREAD_RUNNING = False
-            th.join()
-    cv2.destroyAllWindows()
-
+        
     return calib_data
 
 
-def fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-4, show=False):
+def fine_tune(data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-4, show=False):
 
     # collect person calibration data
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter('%s_calib.avi' % subject, fourcc, 30.0, (640, 480))
-    target = []
-    for index, frames in enumerate(data['frames']):
-        n = 0
-        for i in range(len(frames) - 10, len(frames)):
-            frame = frames[i]
-            g_t = data['g_t'][index]
-            target.append(g_t)
-            out.write(frame)
 
-            # # show
-            # cv2.putText(frame, str(n),(20,20), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,0,0), 3, cv2.LINE_AA)
-            # cv2.imshow('img', frame)
-            # cv2.waitKey(30)
-
-            n += 1
-    cv2.destroyAllWindows()
-    out.release()
-    fout = open('%s_calib_target.pkl' % subject, 'wb')
-    pickle.dump(target, fout)
-    fout.close()
-
-    vid_cap = cv2.VideoCapture('%s_calib.avi' % subject)
-    data = frame_processor.process(subject, vid_cap, mon, device, gaze_network, por_available=True, show=show)
-    vid_cap.release()
+    data = frame_processor.process_calibration(data, mon, device, gaze_network, por_available=True, show=show)
 
     n = len(data['image_a'])
-    assert n==130, "Face not detected correctly. Collect calibration data again."
+    print('N: ', n)
+    #assert n==130, "Face not detected correctly. Collect calibration data again."
     _, c, h, w = data['image_a'][0].shape
     img = np.zeros((n, c, h, w))
     gaze_a = np.zeros((n, 2))
@@ -192,7 +148,7 @@ def fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, step
     train_indices = sum(train_indices, [])
 
     valid_indices = []
-    for i in range(k*10, n, 10):
+    for i in range(k*10, n - 10, 10):
         valid_indices.append(random.sample(range(i, i + 10), 1))
     valid_indices = sum(valid_indices, [])
 
@@ -248,7 +204,7 @@ def fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, step
             valid_loss = loss(input_dict_valid, output_dict).cpu()
             print('%04d> Train: %.2f, Validation: %.2f' %
                   (i+1, train_loss.item(), valid_loss.item()))
-    torch.save(gaze_network.state_dict(), '%s_gaze_network.pth.tar' % subject)
+    torch.save(gaze_network.state_dict(), 'gaze_network.pth.tar')
     torch.cuda.empty_cache()
 
     return gaze_network

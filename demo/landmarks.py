@@ -155,8 +155,8 @@ class landmarks:
             x = markers[i, 0]
             y = markers[i, 1]
             # cv2.circle(img, (x, y), radius, color)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(img, str(i), (x, y), font, 0.3, (255, 0, 0), 1, cv2.LINE_AA)
+            #font = cv2.FONT_HERSHEY_SIMPLEX
+            #cv2.putText(img, str(i), (x, y), font, 0.3, (255, 0, 0), 1, cv2.LINE_AA)
 
         if drawline:
             def draw_line(start, end):

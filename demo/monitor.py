@@ -6,24 +6,17 @@
 # Code written by Shalini De Mello.
 # --------------------------------------------------------
 
-import gi.repository
-gi.require_version('Gdk', '3.0')
-from gi.repository import Gdk
 import numpy as np
 
 class monitor:
 
     def __init__(self):
-        display = Gdk.Display.get_default()
-        screen = display.get_default_screen()
-        default_screen = screen.get_default()
-        num = default_screen.get_number()
+        # default screen 13.3": 11.3" x 7.1", 1 inch = 25.4 mm
+        self.h_mm = 7.1 * 25.4
+        self.w_mm = 11.3 * 25.4
 
-        self.h_mm = default_screen.get_monitor_height_mm(num)
-        self.w_mm = default_screen.get_monitor_width_mm(num)
-
-        self.h_pixels = default_screen.get_height()
-        self.w_pixels = default_screen.get_width()
+        self.h_pixels = 1080
+        self.w_pixels = 1920
 
     def monitor_to_camera(self, x_pixel, y_pixel):
 

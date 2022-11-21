@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pickle
 
-def cam_calibrate(cam_idx, cap, cam_calib):
+def cam_calibrate(cap, calib):
 
     # termination criteria
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -23,31 +23,27 @@ def cam_calibrate(cam_idx, cap, cam_calib):
     obj_points = []  # 3d point in real world space
     img_points = []  # 2d points in image plane.
     frames = []
-    while True:
+    while cap.isOpened():
         ret, frame = cap.read()
-        frame_copy = frame.copy()
+        
+        if not ret:
+            break
+
+        # frame_copy = frame.copy()
 
         corners = []
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             retc, corners = cv2.findChessboardCorners(gray, (9, 6), None)
             if retc:
+                print(corners)
                 cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 # Draw and display the corners
-                cv2.drawChessboardCorners(frame_copy, (9, 6), corners, ret)
-
-                cv2.imshow('points', frame_copy)
-                # s to save, c to continue, q to quit
-                if cv2.waitKey(0) & 0xFF == ord('s'):
-                    img_points.append(corners)
-                    obj_points.append(pts)
-                    frames.append(frame)
-                elif cv2.waitKey(0) & 0xFF == ord('c'):
-                    continue
-                elif cv2.waitKey(0) & 0xFF == ord('q'):
-                    print("Calibrating camera...")
-                    cv2.destroyAllWindows()
-                    break
+                #cv2.drawChessboardCorners(frame_copy, (9, 6), corners, ret)
+                #cv2.imshow('points', frame_copy)
+                img_points.append(corners)
+                obj_points.append(pts)
+                frames.append(frame)
 
     # compute calibration matrices
 
@@ -60,9 +56,9 @@ def cam_calibrate(cam_idx, cap, cam_calib):
         error += (cv2.norm(img_points[i], proj_imgpoints, cv2.NORM_L2) / len(proj_imgpoints))
     print("Camera calibrated successfully, total re-projection error: %f" % (error / len(frames)))
 
-    cam_calib['mtx'] = mtx
-    cam_calib['dist'] = dist
+    calib['mtx'] = mtx
+    calib['dist'] = dist
     print("Camera parameters:")
-    print(cam_calib)
+    print(calib)
 
-    pickle.dump(cam_calib, open("calib_cam%d.pkl" % (cam_idx), "wb"))
+    pickle.dump(calib, open(f"calib_cam0.pkl", "wb"))

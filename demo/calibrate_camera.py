@@ -18,21 +18,18 @@ from camera import cam_calibrate
 # Start camera
 #################################
 
-cam_idx = 0
+calibration_path = './calibration/pattern.mp4'
 
-# adjust these for your camera to get the best accuracy
-# use the same parameters to run the actual demoqsqq
-call('v4l2-ctl -d /dev/video%d -c brightness=100' % cam_idx, shell=True)
-call('v4l2-ctl -d /dev/video%d -c contrast=50' % cam_idx, shell=True)
-call('v4l2-ctl -d /dev/video%d -c sharpness=100' % cam_idx, shell=True)
+cap = cv2.VideoCapture(calibration_path)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-cam_cap = cv2.VideoCapture(cam_idx)
-cam_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cam_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+if cap.isOpened():
+    # calibrate camera
+    calib = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
+    print("Calibrate camera once.")
+    cam_calibrate(cap, calib)
+else:
+    print(f"Error opening video file {calibration_path}")
 
-# calibrate camera
-cam_calib = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
-print("Calibrate camera once. Print pattern.png, paste on a clipboard, show to camera and capture non-blurry images in which points are detected well.")
-print("Press s to save frame, c to continue to next frame and q to quit collecting data and proceed to calibration.")
-cam_calibrate(cam_idx, cam_cap, cam_calib)
-cam_cap.release()
+cap.release()
