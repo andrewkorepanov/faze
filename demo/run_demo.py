@@ -17,22 +17,21 @@ import torch
 import os
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
-from monitor import monitor
-from camera import cam_calibrate
-from person_calibration import collect_data, fine_tune
-from frame_processor import frame_processer
+from monitor import Monitor
+from person_calibration import PersonCalibration
+from frame_processor import FrameProcessor
 
 #################################
 # Start camera
 #################################
 
-
 # calibrate camera
-cam_calib = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
+camera_calibration = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
 if path.exists("calib_cam0.pkl"):
-    cam_calib = pickle.load(open("calib_cam0.pkl", "rb"))
+    camera_calibration = pickle.load(open("calib_cam0.pkl", "rb"))
 else:
     sys.exit('ERR: No calibration file!')
 
@@ -49,6 +48,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # Create network
 sys.path.append("../src")
 from models import DTED
+
 gaze_network = DTED(
     growth_rate=32,
     z_dim_app=64,
@@ -73,7 +73,7 @@ if torch.cuda.device_count() == 1:
 #####################################
 
 # Load MAML MLP weights if available
-full_maml_parameters_path = maml_parameters_path +'/%02d.pth.tar' % k
+full_maml_parameters_path = maml_parameters_path + '/%02d.pth.tar' % k
 assert os.path.isfile(full_maml_parameters_path)
 print('> Loading: %s' % full_maml_parameters_path)
 maml_weights = torch.load(full_maml_parameters_path)
@@ -89,16 +89,23 @@ gaze_network.load_state_dict(ted_weights)
 # Personalize gaze network
 #################################
 
-# Initialize monitor and frame processor
-mon = monitor()
-frame_processor = frame_processer(cam_calib)
+CALIBRATION_EVENTS_PATH = './calibration/calibration.csv'
+CALIBRATION_VIDEO_PATH = './calibration/calibration.webm'
 
-# collect person calibration data and fine-
-# tune gaze network
-data = collect_data(mon)
+# Initialize monitor and frame processor
+monitor = Monitor()
+processor = FrameProcessor(camera_calibration)
+calibration = PersonCalibration(monitor, processor, CALIBRATION_EVENTS_PATH,
+                                CALIBRATION_VIDEO_PATH)
+
+# collect person calibration data and fine-tune gaze network
 # adjust steps and lr for best results
 # To debug calibration, set show=True
-gaze_network = fine_tune(data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-5, show=False)
+gaze_network = calibration.fine_tune(device,
+                                     gaze_network,
+                                     k,
+                                     steps=1000,
+                                     lr=1e-5)
 
 #################################
 # Run on live webcam feed and
@@ -112,6 +119,6 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 if cap.isOpened():
-    data = frame_processor.process_video(cap, mon, device, gaze_network, show=True)
+    data = frame_processor.process_video(cap, monitor, device, gaze_network)
 else:
     print("Can not open video file")

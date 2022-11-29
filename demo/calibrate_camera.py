@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from os import path
 
-from camera import cam_calibrate
+from camera import calibrate
 
 
 #################################
@@ -28,7 +28,7 @@ if cap.isOpened():
     # calibrate camera
     calib = {'mtx': np.eye(3), 'dist': np.zeros((1, 5))}
     print("Calibrate camera once.")
-    cam_calibrate(cap, calib)
+    calibrate(cap, calib)
 else:
     print(f"Error opening video file {calibration_path}")
 

@@ -8,7 +8,7 @@
 
 import numpy as np
 
-class monitor:
+class Monitor:
 
     def __init__(self):
         # default screen 13.3": 11.3" x 7.1", 1 inch = 25.4 mm
