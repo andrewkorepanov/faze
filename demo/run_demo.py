@@ -9,8 +9,8 @@
 import time
 import cv2
 import numpy as np
+import pandas as pd
 from os import path
-from subprocess import call
 import pickle
 import sys
 import torch
@@ -92,16 +92,31 @@ gaze_network.load_state_dict(ted_weights)
 CALIBRATION_EVENTS_PATH = './calibration/calibration.csv'
 CALIBRATION_VIDEO_PATH = './calibration/calibration.webm'
 
+TRACKING_VIDEO_PATH = './calibration/video.webm'
+
 # Initialize monitor and frame processor
 monitor = Monitor()
 processor = FrameProcessor(camera_calibration)
-calibration = PersonCalibration(monitor, processor, CALIBRATION_EVENTS_PATH,
-                                CALIBRATION_VIDEO_PATH)
+calibration = PersonCalibration(monitor, processor)
 
-# collect person calibration data and fine-tune gaze network
+# collect person calibration data
+# calibration events
+calibration_events = pd.read_csv(CALIBRATION_EVENTS_PATH, float_precision='round_trip')
+# calibration video
+cap = cv2.VideoCapture(CALIBRATION_VIDEO_PATH)
+if not cap.isOpened():
+    print('Can not open the calibration video')
+    sys.exit(-1)
+
+calibration_data = calibration.collect_data(cap, calibration_events)
+
+# find the monitor screen-to-camera transform
+
+# fine-tune gaze network
 # adjust steps and lr for best results
 # To debug calibration, set show=True
-gaze_network = calibration.fine_tune(device,
+gaze_network = calibration.fine_tune(calibration_data,
+                                     device,
                                      gaze_network,
                                      k,
                                      steps=1000,
@@ -111,14 +126,22 @@ gaze_network = calibration.fine_tune(device,
 # Run on live webcam feed and
 # show point of regard on screen
 #################################
-# open calibration file
-video_path = './calibration/video.webm'
 
-cap = cv2.VideoCapture(video_path)
+cap = cv2.VideoCapture(TRACKING_VIDEO_PATH)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 if cap.isOpened():
-    data = frame_processor.process_video(cap, monitor, device, gaze_network)
+    data = processor.process_video(cap, monitor, device, gaze_network)
 else:
     print("Can not open video file")
+
+print(data)
+# if data is not None:
+# with open('./output/Pre-study calibration.gaze', 'w') as of:
+# of.write('timestamp,x,y,z\n')
+# if gaze is not None:
+# of.write(
+# f'{timestamp},{g_t[0] / 2.0},{g_t[1] / 2.0},{0}\n')
+# else:
+# of.write(f'{timestamp},,,\n')

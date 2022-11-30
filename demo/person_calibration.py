@@ -22,38 +22,25 @@ import torch
 sys.path.append("../src")
 from losses import GazeAngularLoss
 
+CUTOFF_TIME = 1000
 
 class PersonCalibration:
     """Makes person calibration and the network fine tune"""
 
-    def __init__(self, monitor: Monitor, processor: FrameProcessor,
-                 events_path: Path, video_path: str) -> None:
+    def __init__(self, monitor: Monitor, processor: FrameProcessor) -> None:
 
         self._monitor = monitor
         self._processor = processor
-        self._events_path = events_path
-        self._video_path = video_path
 
-    def _collect_data(self) -> pd.DataFrame:
+    def collect_data(self, cap: cv2.VideoCapture, events: pd.DataFrame) -> pd.DataFrame:
         """Collect clibration frames along with the marker points"""
 
         calibration_data = {'frame': [], 'gaze': []}
 
-        # calibration events
-        calibration_events = pd.read_csv(self._events_path,
-                                         float_precision='round_trip')
-        # calibration video
-        cap = cv2.VideoCapture(self._video_path)
-
-        if not cap.isOpened():
-            print('Can not open the calibration video')
-            return calibration_data
-
         timestamp = 0
-
-        for i, row in calibration_events.iterrows():
+        for _, row in events.iterrows():
             # raw data
-            start_time, end_time = row['StartTimestamp'], row['EndTimestamp']
+            start_time, end_time = row['StartTimestamp'] + CUTOFF_TIME, row['EndTimestamp'] - CUTOFF_TIME
             x, y = row['Left'], row['Top']
             # in the camera coordinate system
             x_cam, y_cam, _ = self._monitor.monitor_to_camera(x, y)
@@ -73,15 +60,11 @@ class PersonCalibration:
 
         return pd.DataFrame(calibration_data)
 
-    def fine_tune(self, device, gaze_network, k, steps=1000, lr=1e-4):
+    def fine_tune(self, calibration_data: pd.DataFrame, device, gaze_network, k, steps=1000, lr=1e-4):
         """Makes a few-shot training on the calibration data"""
 
-        # collect person calibration data
-        calibration_data = self._collect_data()
-
         # process person calibration data
-        data = self._processor.process_calibration(calibration_data,
-                                                   self._monitor)
+        data = self._processor.process_calibration(calibration_data)
 
         n = len(data['image_a'])
         print('N: ', n)

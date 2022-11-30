@@ -24,7 +24,7 @@ from lib.utils import transforms
 
 from face import face
 
-class landmarks:
+class Landmarks:
 
     def __init__(self, config=config):
 
