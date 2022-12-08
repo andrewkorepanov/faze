@@ -97,7 +97,9 @@ def normalize(entry, head_pose):
 
     W = np.dot(np.dot(norm_camera_matrix, S),
                np.dot(R, np.linalg.inv(camera_matrix))) # transformation matrix
-    patch = cv2.warpPerspective(full_frame, W, (ow, oh)) # image normalization
+    # patch = cv2.warpPerspective(full_frame, W, (ow, oh)) # image normalization
+    # patch = cv2.resize(full_frame, (ow, oh))
+    patch = full_frame
 
     R = np.asmatrix(R)
 

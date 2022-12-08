@@ -63,20 +63,19 @@ class FrameProcessor:
     def process_calibration(self, calibration_data: pd.DataFrame) -> pd.DataFrame:
 
         data: pd.Series = calibration_data.apply(lambda row: np.array(
-            self._process_calibration_frame(row['frame'], row['gaze'])
+            self._process_calibration_frame(row['frame'], row[['marker_x', 'marker_y']].to_numpy())
         ),
                                                  axis=1)
         data = np.stack(data.to_list(), axis=0)
 
         return pd.DataFrame(
             data,
-            columns=['image_a', 'gaze_a', 'head_a', 'R_gaze_a', 'R_head_a'])
+            columns=['image_a', 'gaze_a', 'head_a', 'R_gaze_a', 'R_head_a']).dropna()
 
     def _process_calibration_frame(self, image, gaze):
-        print('GAZE: ', gaze)
         # detect face
         face_location = face.detect(image, scale=0.25, use_max='SIZE')
-        print('FACES: ', face_location)
+        # print('FACES: ', face_location)
 
         # No face detected
         if len(face_location) == 0:
@@ -117,13 +116,13 @@ class FrameProcessor:
         entry = {
             'full_frame': image,
             'full_frame_size': (image.shape[0], image.shape[1]),
-            '3d_gaze_target': np.array([gaze[0], gaze[1], 0]),
+            '3d_gaze_target': np.array([gaze[0], gaze[1], 0]).reshape((3,1)),
             'camera_parameters': camera_parameters,
             'face_bounding_box': (int(face_location[0]), int(face_location[1]),
                                   int(face_location[2] - face_location[0]),
                                   int(face_location[3] - face_location[1]))
         }
-        [patch, h_n, g_n, _, _, _] = normalize(entry, head_pose)
+        [patch, h_n, g_n, inverse_M, gaze_cam_origin, gaze_cam_target] = normalize(entry, head_pose)
 
         # cv2.imshow('raw patch', patch)
 
@@ -160,22 +159,42 @@ class FrameProcessor:
         # compute the ground truth POR if the
         # ground truth is available
         R_head_a = calculate_rotation_matrix(h_n)
-        R_gaze_a = np.zeros((1, 3, 3))
+        R_gaze_a = calculate_rotation_matrix(g_n)
 
         return np.array([processed_patch, g_n, h_n, R_gaze_a, R_head_a])
 
-    def process_monitor_calibration(self, calibration_data: pd.DataFrame, monitor: Monitor, device, gaze_network) -> pd.DataFrame:
+    def process_monitor(self, calibration_data: pd.DataFrame, monitor: Monitor, device, gaze_network) -> pd.DataFrame:
 
         data: pd.Series = calibration_data.apply(lambda row: np.array(
             self._process_video_frame(row['frame'], device, gaze_network)
         ),
                                                  axis=1)
         data = np.stack(data.to_list(), axis=0)
-        data = np.stack([data, calibration_data['gaze']], axis=1)
-        
-        return pd.DataFrame(
+        data = pd.DataFrame(
             data,
-            columns=['image_a', 'gaze_a', 'head_a', 'R_gaze_a', 'R_head_a'])
+            columns=['gaze_x', 'gaze_y'])
+
+        data = pd.concat([data, calibration_data[['marker_x', 'marker_y']]], axis=1)
+        data = data.groupby(['marker_x', 'marker_y'], as_index=False).median()
+
+        gazes = data[['gaze_x','gaze_y']]
+        gazes['gaze_z'] = 1
+        
+        markers = data[['marker_x','marker_y']]
+        markers['marker_z'] = 1
+        
+        transform = np.linalg.lstsq(markers, gazes, rcond=None)[0]
+        # transform = np.identity(3)
+
+        monitor.set_transform(transform)
+
+        calibration_markers = calibration_data[['marker_x', 'marker_y']]
+        calibration_markers['marker_z'] = 1
+        
+        calibration_markers = np.matmul(calibration_markers.to_numpy(), transform)
+        calibration_data[['marker_x', 'marker_y']] = calibration_markers[:,0:2]
+
+        return calibration_data
 
     def process_video(self, cap: cv2.VideoCapture, monitor: Monitor, device, gaze_network, convert_to_monitor: bool=False):
 
@@ -192,18 +211,17 @@ class FrameProcessor:
                 if gaze is not None:
                     if convert_to_monitor:
                         # convert to monitor coordinates
-                        gaze = monitor.camera_to_monitor(gaze)
-                        x, y = gaze[0], gaze[1]
+                        x, y = monitor.camera_to_monitor(gaze[0], gaze[1])
 
                         fxy = self.kalman_filter_gaze[0].update(x + 1j * y)
                         x, y = np.ceil(np.real(fxy)), np.ceil(np.imag(fxy))
                         gaze = np.array([x, y])
-                    print('GAZE SHAPE: ', gaze.shape)
 
+                    gaze = np.insert(gaze, 0, timestamp)
                     data.append(gaze)
 
         data = np.stack(data, axis=0)
-        return pd.DataFrame(data, columns=['x', 'y'])
+        return pd.DataFrame(data, columns=['timestamp', 'x', 'y'])
 
     def _process_video_frame(self,
                              image: np.array,
@@ -211,7 +229,7 @@ class FrameProcessor:
                              gaze_network):
         # detect face
         face_location = face.detect(image, scale=0.25, use_max='SIZE')
-        print('FACES: ', face_location)
+        # print('FACES: ', face_location)
 
         # No face detected
         if len(face_location) == 0:
@@ -319,6 +337,9 @@ class FrameProcessor:
         g_n_forward = -g_cnn
         g_cam_forward = inverse_M * g_n_forward
         g_cam_forward = g_cam_forward / np.linalg.norm(g_cam_forward)
+
+        gaze_cam_origin = gaze_cam_origin.squeeze()
+        g_cam_forward = np.asarray(g_cam_forward).squeeze()
 
         d = -gaze_cam_origin[2] / g_cam_forward[2]
         por_cam_x = gaze_cam_origin[0] + d * g_cam_forward[0]

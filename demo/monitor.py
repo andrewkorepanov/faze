@@ -18,20 +18,19 @@ class Monitor:
         self.h_pixels = 1080
         self.w_pixels = 1920
 
-    def monitor_to_camera(self, x_pixel, y_pixel):
+    def set_transform(self, monitor_to_camera_matrix: np.array):
+        # right transform matrix: x * M = y
+        self._monitor_to_camera = monitor_to_camera_matrix
+        self._camera_to_monitor = np.linalg.inv(monitor_to_camera_matrix)
+        print(self._monitor_to_camera)
+        print(self._camera_to_monitor)
 
-        # assumes in-build laptop camera, located centered and 10 mm above display
-        # update this function for you camera and monitor using: https://github.com/computer-vision/takahashi2012cvpr
-        x_cam_mm = ((int(self.w_pixels/2) - x_pixel)/self.w_pixels) * self.w_mm
-        y_cam_mm = 10.0 + (y_pixel/self.h_pixels) * self.h_mm
-        z_cam_mm = 0.0
+    def monitor_to_camera(self, x, y):
 
-        return x_cam_mm, y_cam_mm, z_cam_mm
+        coords = np.matmul(np.array([x, y, 1]), self._monitor_to_camera)
+        return coords[0], coords[1], 1
 
-    def camera_to_monitor(self, x_cam_mm, y_cam_mm):
-        # assumes in-build laptop camera, located centered and 10 mm above display
-        # update this function for you camera and monitor using: https://github.com/computer-vision/takahashi2012cvpr
-        x_mon_pixel = np.ceil(int(self.w_pixels/2) - x_cam_mm * self.w_pixels / self.w_mm)
-        y_mon_pixel = np.ceil((y_cam_mm - 10.0) * self.h_pixels / self.h_mm)
+    def camera_to_monitor(self, x, y):
 
-        return x_mon_pixel, y_mon_pixel
+        coords = np.matmul(np.array([x, y, 1]), self._camera_to_monitor)
+        return coords[0], coords[1]

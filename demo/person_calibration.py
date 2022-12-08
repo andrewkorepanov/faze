@@ -21,6 +21,7 @@ import torch
 
 sys.path.append("../src")
 from losses import GazeAngularLoss
+from losses import GazeMSELoss
 
 CUTOFF_TIME = 1000
 
@@ -35,16 +36,14 @@ class PersonCalibration:
     def collect_data(self, cap: cv2.VideoCapture, events: pd.DataFrame) -> pd.DataFrame:
         """Collect clibration frames along with the marker points"""
 
-        calibration_data = {'frame': [], 'gaze': []}
+        calibration_data = {'frame': [], 'marker_x': [], 'marker_y': []}
 
         timestamp = 0
         for _, row in events.iterrows():
             # raw data
             start_time, end_time = row['StartTimestamp'] + CUTOFF_TIME, row['EndTimestamp'] - CUTOFF_TIME
+            # x, y, _ = self._monitor.monitor_to_camera(row['Left'], row['Top'])
             x, y = row['Left'], row['Top']
-            # in the camera coordinate system
-            x_cam, y_cam, _ = self._monitor.monitor_to_camera(x, y)
-            marker = (x_cam, y_cam)
 
             print(f'START: {start_time}, END: {end_time}')
 
@@ -52,11 +51,11 @@ class PersonCalibration:
                 ret, frame = cap.read()
                 if not ret:
                     break
-
                 timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
                 if timestamp > start_time:
                     calibration_data['frame'].append(frame)
-                    calibration_data['gaze'].append(marker)
+                    calibration_data['marker_x'].append(x)
+                    calibration_data['marker_y'].append(y)
 
         return pd.DataFrame(calibration_data)
 
@@ -64,7 +63,7 @@ class PersonCalibration:
         """Makes a few-shot training on the calibration data"""
 
         # process person calibration data
-        data = self._processor.process_calibration(calibration_data)
+        data: pd.DataFrame = self._processor.process_calibration(calibration_data)
 
         n = len(data['image_a'])
         print('N: ', n)
@@ -76,21 +75,24 @@ class PersonCalibration:
         R_gaze_a = np.zeros((n, 3, 3))
         R_head_a = np.zeros((n, 3, 3))
         for i in range(n):
-            img[i, :, :, :] = data['image_a'][i]
-            gaze_a[i, :] = data['gaze_a'][i]
-            head_a[i, :] = data['head_a'][i]
-            R_gaze_a[i, :, :] = data['R_gaze_a'][i]
-            R_head_a[i, :, :] = data['R_head_a'][i]
+            img[i, :, :, :] = data.loc[i,'image_a']
+            gaze_a[i, :] = data.loc[i,'gaze_a']
+            head_a[i, :] = data.loc[i,'head_a']
+            R_gaze_a[i, :, :] = data.loc[i,'R_gaze_a']
+            R_head_a[i, :, :] = data.loc[i,'R_head_a']
 
         # create data subsets
+        step = n // k
         train_indices = []
-        for i in range(0, k * 10, 10):
-            train_indices.append(random.sample(range(i, i + 10), 3))
+        for i in range(0, k * step, step):
+            train_indices.append(random.sample(range(i, i + step), 12))
         train_indices = sum(train_indices, [])
+        
+        print('TRAIN INDICES: ', train_indices)
 
         valid_indices = []
-        for i in range(k * 10, n - 10, 10):
-            valid_indices.append(random.sample(range(i, i + 10), 1))
+        for i in range(0, k * step, step):
+            valid_indices.append(random.sample(range(i, i + step), 3))
         valid_indices = sum(valid_indices, [])
 
         input_dict_train = {
