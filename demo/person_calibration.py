@@ -95,6 +95,11 @@ class PersonCalibration:
             valid_indices.append(random.sample(range(i, i + step), 3))
         valid_indices = sum(valid_indices, [])
 
+        for i in train_indices:
+            image = (img[i,:,:,:] + 1) * 255 / 2
+            image = np.transpose(image, [1, 2, 0])  # CxHxW
+            cv2.imwrite(f'./output/{i}.png', image)
+
         input_dict_train = {
             'image_a': img[train_indices, :, :, :],
             'gaze_a': gaze_a[train_indices, :],

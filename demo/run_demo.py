@@ -160,8 +160,8 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=5000,
-                                     lr=1e-2)
+                                     steps=1000,
+                                     lr=1e-5)
 """
 #################################
 # TRAINING ITERATION 2

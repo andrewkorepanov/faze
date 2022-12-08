@@ -130,8 +130,6 @@ class FrameProcessor:
             ycrcb = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
             ycrcb[:, :, 0] = cv2.equalizeHist(ycrcb[:, :, 0])
             image = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2RGB)
-            # cv2.imshow('processed patch', image)
-
             image = np.transpose(image, [2, 0, 1])  # CxHxW
             image = 2.0 * image / 255.0 - 1
             return image
