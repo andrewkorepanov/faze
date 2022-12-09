@@ -100,8 +100,8 @@ PRE_CALIBRATION_VIDEO_PATH = './calibration/Pre-study calibration.webm'
 POST_CALIBRATION_VIDEO_PATH = './calibration/Post-study calibration.webm'
 
 TRACKING_VIDEO_PATH = []
-TRACKING_VIDEO_PATH.append('./calibration/Pre-study calibration.webm')
-# TRACKING_VIDEO_PATH.append('./calibration/Post-study calibration.webm')
+# TRACKING_VIDEO_PATH.append('./calibration/Pre-study calibration.webm')
+TRACKING_VIDEO_PATH.append('./calibration/Post-study calibration.webm')
 # TRACKING_VIDEO_PATH.append('./calibration/SandalCat emoji.webm')
 # TRACKING_VIDEO_PATH.append('./calibration/ShyCat emoji.webm')
 # TRACKING_VIDEO_PATH.append('./calibration/WashingCat emoji.webm')
@@ -118,6 +118,7 @@ calibration = PersonCalibration(monitor, processor)
 #################################
 
 def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
+    """
     # calibration video
     cap = cv2.VideoCapture(PRE_CALIBRATION_VIDEO_PATH)
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -127,18 +128,22 @@ def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
         sys.exit(-1)
     # collect calibration data from the video
     pre_calibration_data = calibration.collect_data(cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] == PRE_CALIBRATION])
+
+    return pre_calibration_data
     """
     # calibration video
     cap = cv2.VideoCapture(POST_CALIBRATION_VIDEO_PATH)
+    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     if not cap.isOpened():
         print('Can not open the calibration video')
         sys.exit(-1)
     # collect calibration data from the video
     post_calibration_data = calibration.collect_data(cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] == POST_CALIBRATION])
+    
+    return post_calibration_data
 
     return pd.concat([pre_calibration_data, post_calibration_data], axis=0, ignore_index=True)
-    """
-    return pre_calibration_data
 
 # calibration events
 calibration_events = pd.read_csv(CALIBRATION_EVENTS_PATH, float_precision='round_trip')
@@ -160,8 +165,8 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=1000,
-                                     lr=1e-5)
+                                     steps=2000,
+                                     lr=1e-4)
 """
 #################################
 # TRAINING ITERATION 2

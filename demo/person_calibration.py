@@ -155,6 +155,7 @@ class PersonCalibration:
                 valid_loss = loss(input_dict_valid, output_dict).cpu()
                 print('%04d> Train: %.2f, Validation: %.2f' %
                       (i + 1, train_loss.item(), valid_loss.item()))
+
         torch.save(gaze_network.state_dict(), 'gaze_network.pth.tar')
         torch.cuda.empty_cache()
 

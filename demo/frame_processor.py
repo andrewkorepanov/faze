@@ -73,6 +73,7 @@ class FrameProcessor:
             columns=['image_a', 'gaze_a', 'head_a', 'R_gaze_a', 'R_head_a']).dropna()
 
     def _process_calibration_frame(self, image, gaze):
+        # image = self.undistorter.apply(image)
         # detect face
         face_location = face.detect(image, scale=0.25, use_max='SIZE')
         # print('FACES: ', face_location)
@@ -124,6 +125,7 @@ class FrameProcessor:
         }
         [patch, h_n, g_n, inverse_M, gaze_cam_origin, gaze_cam_target] = normalize(entry, head_pose)
 
+        print('G_N: ', g_n)
         # cv2.imshow('raw patch', patch)
 
         def preprocess_image(image):
@@ -225,6 +227,7 @@ class FrameProcessor:
                              image: np.array,
                              device,
                              gaze_network):
+        # image = self.undistorter.apply(image)
         # detect face
         face_location = face.detect(image, scale=0.25, use_max='SIZE')
         # print('FACES: ', face_location)
@@ -306,6 +309,13 @@ class FrameProcessor:
 
         def calculate_rotation_matrix(e):
             return np.matmul(R_y(e[1]), R_x(e[0]))
+
+        def pitchyaw_to_vector(pitchyaw):
+            vector = np.zeros((3, 1))
+            vector[0, 0] = np.cos(pitchyaw[0]) * np.sin(pitchyaw[1])
+            vector[1, 0] = np.sin(pitchyaw[0])
+            vector[2, 0] = np.cos(pitchyaw[0]) * np.cos(pitchyaw[1])
+            return vector
 
         # compute the ground truth POR if the
         # ground truth is available
