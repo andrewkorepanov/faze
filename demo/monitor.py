@@ -7,6 +7,7 @@
 # --------------------------------------------------------
 
 import numpy as np
+from scipy.interpolate import RBFInterpolator
 
 class Monitor:
 
@@ -18,19 +19,14 @@ class Monitor:
         self.h_pixels = 1080
         self.w_pixels = 1920
 
-    def set_transform(self, monitor_to_camera_matrix: np.array):
+    def set_transform(self, monitor_to_camera: RBFInterpolator,
+                      camera_to_monitor: RBFInterpolator):
         # right transform matrix: x * M = y
-        self._monitor_to_camera = monitor_to_camera_matrix
-        self._camera_to_monitor = np.linalg.inv(monitor_to_camera_matrix)
-        print(self._monitor_to_camera)
-        print(self._camera_to_monitor)
+        self._monitor_to_camera = monitor_to_camera
+        self._camera_to_monitor = camera_to_monitor
 
-    def monitor_to_camera(self, x, y):
+    def monitor_to_camera(self, gazes:np.array) -> np.array:
+        return self._monitor_to_camera(gazes)
 
-        coords = np.matmul(np.array([x, y, 1]), self._monitor_to_camera)
-        return coords[0], coords[1], 1
-
-    def camera_to_monitor(self, x, y):
-
-        coords = np.matmul(np.array([x, y, 1]), self._camera_to_monitor)
-        return coords[0], coords[1]
+    def camera_to_monitor(self, markers:np.array) -> np.array:
+        return self._camera_to_monitor(markers)

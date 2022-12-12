@@ -81,19 +81,22 @@ class PersonCalibration:
             R_gaze_a[i, :, :] = data.loc[i,'R_gaze_a']
             R_head_a[i, :, :] = data.loc[i,'R_head_a']
 
+        r = [i for i in range(0,n)]
+        # random.shuffle(r)
+
         # create data subsets
         step = n // k
         train_indices = []
         for i in range(0, k * step, step):
-            train_indices.append(random.sample(range(i, i + step), 12))
+            train_indices.append(random.sample(r[i:i + step], 12))
         train_indices = sum(train_indices, [])
-        
         print('TRAIN INDICES: ', train_indices)
 
         valid_indices = []
         for i in range(0, k * step, step):
-            valid_indices.append(random.sample(range(i, i + step), 3))
+            valid_indices.append(random.sample(r[i:i + step], 3))
         valid_indices = sum(valid_indices, [])
+        print('VALID INDICES: ', valid_indices)
 
         for i in train_indices:
             image = (img[i,:,:,:] + 1) * 255 / 2
@@ -125,7 +128,7 @@ class PersonCalibration:
         #################
 
         loss = GazeAngularLoss()
-        optimizer = torch.optim.SGD(
+        optimizer = torch.optim.Adam(
             [
                 p for n, p in gaze_network.named_parameters()
                 if n.startswith('gaze')

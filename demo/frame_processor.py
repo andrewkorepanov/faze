@@ -17,6 +17,7 @@ import os
 import torch
 import datetime
 from pathlib import Path
+from scipy.interpolate import RBFInterpolator
 
 sys.path.append("ext/eth")
 from undistorter import Undistorter
@@ -125,9 +126,6 @@ class FrameProcessor:
         }
         [patch, h_n, g_n, inverse_M, gaze_cam_origin, gaze_cam_target] = normalize(entry, head_pose)
 
-        print('G_N: ', g_n)
-        # cv2.imshow('raw patch', patch)
-
         def preprocess_image(image):
             ycrcb = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
             ycrcb[:, :, 0] = cv2.equalizeHist(ycrcb[:, :, 0])
@@ -178,21 +176,17 @@ class FrameProcessor:
         data = data.groupby(['marker_x', 'marker_y'], as_index=False).median()
 
         gazes = data[['gaze_x','gaze_y']]
-        gazes['gaze_z'] = 1
-        
         markers = data[['marker_x','marker_y']]
-        markers['marker_z'] = 1
-        
-        transform = np.linalg.lstsq(markers, gazes, rcond=None)[0]
-        # transform = np.identity(3)
 
-        monitor.set_transform(transform)
+        camera_to_monitor = RBFInterpolator(gazes.to_numpy(), markers.to_numpy())
+        monitor_to_camera = RBFInterpolator(markers.to_numpy(), gazes.to_numpy())
 
-        calibration_markers = calibration_data[['marker_x', 'marker_y']]
-        calibration_markers['marker_z'] = 1
-        
-        calibration_markers = np.matmul(calibration_markers.to_numpy(), transform)
-        calibration_data[['marker_x', 'marker_y']] = calibration_markers[:,0:2]
+        monitor.set_transform(monitor_to_camera, camera_to_monitor)
+
+        calibration_data[['marker_x', 'marker_y']] = monitor.monitor_to_camera(
+            calibration_data[['marker_x', 'marker_y']])
+
+        print(calibration_data)
 
         return calibration_data
 
@@ -209,18 +203,16 @@ class FrameProcessor:
             if timestamp > 0:
                 gaze = self._process_video_frame(image, device, gaze_network)
                 if gaze is not None:
-                    if convert_to_monitor:
-                        # convert to monitor coordinates
-                        x, y = monitor.camera_to_monitor(gaze[0], gaze[1])
-
-                        fxy = self.kalman_filter_gaze[0].update(x + 1j * y)
-                        x, y = np.ceil(np.real(fxy)), np.ceil(np.imag(fxy))
-                        gaze = np.array([x, y])
-
-                    gaze = np.insert(gaze, 0, timestamp)
-                    data.append(gaze)
+                    # Kalman filtration
+                    x, y = gaze[0], gaze[1]
+                    fxy = self.kalman_filter_gaze[0].update(x + 1j * y)
+                    x, y = np.ceil(np.real(fxy)), np.ceil(np.imag(fxy))
+                    data.append(np.array([timestamp, x, y]))
 
         data = np.stack(data, axis=0)
+        if convert_to_monitor:
+            data[:, 1:3] = monitor.camera_to_monitor(data[:, 1:3])
+
         return pd.DataFrame(data, columns=['timestamp', 'x', 'y'])
 
     def _process_video_frame(self,

@@ -100,7 +100,7 @@ PRE_CALIBRATION_VIDEO_PATH = './calibration/Pre-study calibration.webm'
 POST_CALIBRATION_VIDEO_PATH = './calibration/Post-study calibration.webm'
 
 TRACKING_VIDEO_PATH = []
-# TRACKING_VIDEO_PATH.append('./calibration/Pre-study calibration.webm')
+TRACKING_VIDEO_PATH.append('./calibration/Pre-study calibration.webm')
 TRACKING_VIDEO_PATH.append('./calibration/Post-study calibration.webm')
 # TRACKING_VIDEO_PATH.append('./calibration/SandalCat emoji.webm')
 # TRACKING_VIDEO_PATH.append('./calibration/ShyCat emoji.webm')
@@ -118,7 +118,6 @@ calibration = PersonCalibration(monitor, processor)
 #################################
 
 def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
-    """
     # calibration video
     cap = cv2.VideoCapture(PRE_CALIBRATION_VIDEO_PATH)
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -127,10 +126,10 @@ def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
         print('Can not open the calibration video')
         sys.exit(-1)
     # collect calibration data from the video
-    pre_calibration_data = calibration.collect_data(cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] == PRE_CALIBRATION])
+    pre_calibration_data = calibration.collect_data(
+        cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] ==
+                                    PRE_CALIBRATION])
 
-    return pre_calibration_data
-    """
     # calibration video
     cap = cv2.VideoCapture(POST_CALIBRATION_VIDEO_PATH)
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -139,14 +138,21 @@ def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
         print('Can not open the calibration video')
         sys.exit(-1)
     # collect calibration data from the video
-    post_calibration_data = calibration.collect_data(cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] == POST_CALIBRATION])
-    
-    return post_calibration_data
+    post_calibration_data = calibration.collect_data(
+        cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] ==
+                                    POST_CALIBRATION])
 
-    return pd.concat([pre_calibration_data, post_calibration_data], axis=0, ignore_index=True)
+    calibration_data = pd.concat([pre_calibration_data, post_calibration_data],
+                     axis=0,
+                     ignore_index=True)
+    calibration_data.sort_values(by=['marker_x', 'marker_y'])
+    print('CALIBRATION_DATA: ', calibration_data)
+
+    return calibration_data
 
 # calibration events
-calibration_events = pd.read_csv(CALIBRATION_EVENTS_PATH, float_precision='round_trip')
+calibration_events = pd.read_csv(CALIBRATION_EVENTS_PATH,
+                                 float_precision='round_trip')
 
 #################################
 # TRAINING ITERATION 1 (PRE)
@@ -156,7 +162,8 @@ print('####### TRAINING ITERATION 1: CALIBRATION #######')
 # find the monitor screen-to-camera transform
 # updates monitor transforms
 calibration_data = read_callibration_data(calibration_events)
-calibration_data = processor.process_monitor(calibration_data, monitor, device, gaze_network)
+calibration_data = processor.process_monitor(calibration_data, monitor, device,
+                                             gaze_network)
 
 # fine-tune gaze network
 # adjust steps and lr for best results
@@ -166,7 +173,7 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      gaze_network,
                                      k,
                                      steps=2000,
-                                     lr=1e-4)
+                                     lr=1e-3)
 """
 #################################
 # TRAINING ITERATION 2
@@ -185,7 +192,7 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=2000,
+                                     steps=3000,
                                      lr=1e-4)
 
 #################################
@@ -200,10 +207,9 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=2000,
+                                     steps=1000,
                                      lr=1e-5)
 """
-
 #################################
 # Run on live webcam feed and
 # show point of regard on screen
@@ -213,7 +219,11 @@ print('####### INFERENCE #######')
 for path in TRACKING_VIDEO_PATH:
     cap = cv2.VideoCapture(path)
     if cap.isOpened():
-        data = processor.process_video(cap, monitor, device, gaze_network, convert_to_monitor=True)
+        data = processor.process_video(cap,
+                                       monitor,
+                                       device,
+                                       gaze_network,
+                                       convert_to_monitor=True)
     else:
         print("Can not open video file")
 
