@@ -19,14 +19,24 @@ class Monitor:
         self.h_pixels = 1080
         self.w_pixels = 1920
 
-    def set_transform(self, monitor_to_camera: RBFInterpolator,
-                      camera_to_monitor: RBFInterpolator):
+    def set_transform(self, rotation: np.array,
+                      translation: np.array):
         # right transform matrix: x * M = y
-        self._monitor_to_camera = monitor_to_camera
-        self._camera_to_monitor = camera_to_monitor
+        self._rotation = rotation
+        self._translation = translation
+        self._inv_rotation = np.linalg.inv(rotation)
+        self._n = np.squeeze(self._rotation[:,2])
+        print('Normal: ', self._n)
 
-    def monitor_to_camera(self, gazes:np.array) -> np.array:
-        return self._monitor_to_camera(gazes)
+    def camera_to_monitor(self, data:np.array) -> np.array:
+        gaze_origins = data[:, 0:3]
+        gaze_vectors = data[:, 3:6]
 
-    def camera_to_monitor(self, markers:np.array) -> np.array:
-        return self._camera_to_monitor(markers)
+        a = np.einsum('ij,j->i', self._translation - gaze_origins, self._n)
+        b = np.einsum('ij,j->i', gaze_vectors, self._n) 
+        t = a / b
+
+        g = gaze_origins + t[:, np.newaxis] * gaze_vectors - self._translation
+        g = np.einsum('ij,kj->ki', self._inv_rotation, g)
+
+        return g[:, 0:2]

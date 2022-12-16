@@ -68,7 +68,8 @@ def common_pre(entry, head_pose):
     g_t = g = None
     if entry['3d_gaze_target'] is not None:
         g_t = entry['3d_gaze_target'].reshape(3, 1)
-        g = g_t - g_o
+        # g = g_t - g_o
+        g = g_t
         g /= np.linalg.norm(g)
 
     return [full_frame, rvec, tvec, rotate_mat, camera_matrix, n_f, n_d,

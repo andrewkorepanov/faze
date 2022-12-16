@@ -66,7 +66,6 @@ class PersonCalibration:
         data: pd.DataFrame = self._processor.process_calibration(calibration_data)
 
         n = len(data['image_a'])
-        print('N: ', n)
         #assert n==130, "Face not detected correctly. Collect calibration data again."
         _, c, h, w = data['image_a'][0].shape
         img = np.zeros((n, c, h, w))

@@ -64,7 +64,7 @@ class FrameProcessor:
     def process_calibration(self, calibration_data: pd.DataFrame) -> pd.DataFrame:
 
         data: pd.Series = calibration_data.apply(lambda row: np.array(
-            self._process_calibration_frame(row['frame'], row[['marker_x', 'marker_y']].to_numpy())
+            self._process_calibration_frame(row['frame'], row[['marker_x', 'marker_y', 'marker_z']].to_numpy())
         ),
                                                  axis=1)
         data = np.stack(data.to_list(), axis=0)
@@ -118,7 +118,7 @@ class FrameProcessor:
         entry = {
             'full_frame': image,
             'full_frame_size': (image.shape[0], image.shape[1]),
-            '3d_gaze_target': np.array([gaze[0], gaze[1], 0]).reshape((3,1)),
+            '3d_gaze_target': np.array([gaze[0], gaze[1], gaze[2]]).reshape(3,1),
             'camera_parameters': camera_parameters,
             'face_bounding_box': (int(face_location[0]), int(face_location[1]),
                                   int(face_location[2] - face_location[0]),
@@ -161,36 +161,117 @@ class FrameProcessor:
 
         return np.array([processed_patch, g_n, h_n, R_gaze_a, R_head_a])
 
+    # MONITOR
+
+    def fit_func(self, landmarks, camera_parameters):
+        landmarks = np.array([
+            landmarks[i - 1, :]
+            for i in self.ibug_ids_to_use
+        ], dtype=np.float64)
+        fx, fy, cx, cy = camera_parameters
+
+        # print('SOLVE PNP POINTS: ', self.sfm_points_for_pnp)
+        # print('SOLVE PNP LANDMARKS: ', landmarks)
+        # Initial fit
+        camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+        success, rvec, tvec, inliers = cv2.solvePnPRansac(self.sfm_points_for_pnp, landmarks,
+                                                          camera_matrix, None, flags=cv2.SOLVEPNP_EPNP)
+
+        # Second fit for higher accuracy
+        success, rvec, tvec = cv2.solvePnP(self.sfm_points_for_pnp, landmarks, camera_matrix, None,
+                                           rvec=rvec, tvec=tvec, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
+
+        return rvec, tvec
+
+    def project_model(self, rvec, tvec, camera_parameters):
+        fx, fy, cx, cy = camera_parameters
+        camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+        points, _ = cv2.projectPoints(self.sfm_points_ibug_subset, rvec, tvec, camera_matrix, None)
+        return points
+
     def process_monitor(self, calibration_data: pd.DataFrame, monitor: Monitor, device, gaze_network) -> pd.DataFrame:
 
+        #
+        # calculate gazes
+        #
         data: pd.Series = calibration_data.apply(lambda row: np.array(
             self._process_video_frame(row['frame'], device, gaze_network)
         ),
                                                  axis=1)
+        
         data = np.stack(data.to_list(), axis=0)
         data = pd.DataFrame(
             data,
-            columns=['gaze_x', 'gaze_y'])
+            columns=['gaze_origin_x', 'gaze_origin_y', 'gaze_origin_z', 'gaze_vector_x', 'gaze_vector_y', 'gaze_vector_z'])
 
         data = pd.concat([data, calibration_data[['marker_x', 'marker_y']]], axis=1)
-        data = data.groupby(['marker_x', 'marker_y'], as_index=False).median()
 
-        gazes = data[['gaze_x','gaze_y']]
-        markers = data[['marker_x','marker_y']]
+        print('Gazes & Markers')
+        print(data[['marker_x', 'marker_y', 'gaze_vector_x', 'gaze_vector_y', 'gaze_vector_z']])
 
-        camera_to_monitor = RBFInterpolator(gazes.to_numpy(), markers.to_numpy())
-        monitor_to_camera = RBFInterpolator(markers.to_numpy(), gazes.to_numpy())
+        grouped_data = data.groupby(['marker_x', 'marker_y'], as_index=False).median()
+        print('Grouped gazes')
+        print(grouped_data[['marker_x', 'marker_y', 'gaze_vector_x', 'gaze_vector_y', 'gaze_vector_z']])
 
-        monitor.set_transform(monitor_to_camera, camera_to_monitor)
+        markers = grouped_data[['marker_x','marker_y']]
+        markers['marker_z'] = 0
+        gaze_vectors = grouped_data[['gaze_vector_x','gaze_vector_y','gaze_vector_z']]
+        gaze_origins = grouped_data[['gaze_origin_x','gaze_origin_y','gaze_origin_z']]
 
-        calibration_data[['marker_x', 'marker_y']] = monitor.monitor_to_camera(
-            calibration_data[['marker_x', 'marker_y']])
+        # Move origin to the gaze centers, inverse z-axis 
+        gazes = gaze_vectors
+        gazes['gaze_vector_z'] = -gazes['gaze_vector_z']
 
-        print(calibration_data)
+        # project gazes to the plane z=1 (in the gaze coordinate system)
+        d = 1.0 / gazes.loc[:, 'gaze_vector_z'].to_numpy()
+        d = d.reshape((-1,1))
+
+        gazes = d * gazes
+        
+        #
+        # Fit the screen plane to the found gazes configuration
+        #
+        camera_matrix = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float64)
+        success, rvec, tvec, inliers = cv2.solvePnPRansac(markers.to_numpy(), gazes[['gaze_vector_x','gaze_vector_y']].to_numpy(),
+                                                          camera_matrix, None, flags=cv2.SOLVEPNP_EPNP)
+
+        # Second fit for higher accuracy
+        success, rvec, tvec = cv2.solvePnP(markers.to_numpy(), gazes[['gaze_vector_x','gaze_vector_y']].to_numpy(), camera_matrix, None,
+                                           rvec=rvec, tvec=tvec, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
+
+        rotation, _ = cv2.Rodrigues(rvec)
+        translation = np.squeeze(tvec)
+        # convert to the camera coordinate system (z = -z)
+        rotation[2, :] *= -1
+        translation[2] *= -1
+        print('ROTATION: ', rotation)
+        print('TRANSLATION: ', translation)
+
+        # calculate gaze vectors from the gaze origin 
+        # to the markers on the screen plane
+        markers = calibration_data[['marker_x', 'marker_y']]
+        markers['marker_z'] = 0
+
+        # gaze vectors
+        gaze_vectors = np.einsum('ij,kj->ki', rotation, markers.to_numpy()) + translation
+        gaze_vectors = gaze_vectors / np.linalg.norm(gaze_vectors, axis=-1)[:, np.newaxis]
+
+        # screen plane translation
+        # in the camera coordinate system
+        gaze_origin = data[['gaze_origin_x','gaze_origin_y','gaze_origin_z']].median().to_numpy()
+        translation = gaze_origin + translation
+        print('Gaze origin: ', gaze_origin)
+        print('Translation: ', translation)
+
+        monitor.set_transform(rotation, translation)
+
+        calibration_data[['marker_x', 'marker_y', 'marker_z']] = gaze_vectors
+        print('Calibration data')
+        print(calibration_data[['marker_x', 'marker_y', 'marker_z']])
 
         return calibration_data
 
-    def process_video(self, cap: cv2.VideoCapture, monitor: Monitor, device, gaze_network, convert_to_monitor: bool=False):
+    def process_video(self, cap: cv2.VideoCapture, monitor: Monitor, device, gaze_network):
 
         data = []
 
@@ -204,16 +285,16 @@ class FrameProcessor:
                 gaze = self._process_video_frame(image, device, gaze_network)
                 if gaze is not None:
                     # Kalman filtration
-                    x, y = gaze[0], gaze[1]
-                    fxy = self.kalman_filter_gaze[0].update(x + 1j * y)
-                    x, y = np.ceil(np.real(fxy)), np.ceil(np.imag(fxy))
-                    data.append(np.array([timestamp, x, y]))
+                    # x, y = gaze[0], gaze[1]
+                    # fxy = self.kalman_filter_gaze[0].update(x + 1j * y)
+                    # x, y = np.ceil(np.real(fxy)), np.ceil(np.imag(fxy))
+                    gaze = np.insert(gaze, 0, timestamp)
+                    data.append(gaze)
 
         data = np.stack(data, axis=0)
-        if convert_to_monitor:
-            data[:, 1:3] = monitor.camera_to_monitor(data[:, 1:3])
+        data[:, 1:3] = monitor.camera_to_monitor(data[:, 1:7])
 
-        return pd.DataFrame(data, columns=['timestamp', 'x', 'y'])
+        return pd.DataFrame(data[:, 0:3], columns=['timestamp', 'x', 'y'])
 
     def _process_video_frame(self,
                              image: np.array,
@@ -333,16 +414,19 @@ class FrameProcessor:
         g_cnn = g_cnn.reshape(3, 1)
         g_cnn /= np.linalg.norm(g_cnn)
 
+        # print('g_cnn: ', g_cnn)
+
         # compute the POR on z=0 plane
         g_n_forward = -g_cnn
+        # print('g_cnn: ', g_cnn)
         g_cam_forward = inverse_M * g_n_forward
         g_cam_forward = g_cam_forward / np.linalg.norm(g_cam_forward)
 
         gaze_cam_origin = gaze_cam_origin.squeeze()
+        # print('gaze_cam_origin: ', gaze_cam_origin)
+
         g_cam_forward = np.asarray(g_cam_forward).squeeze()
+        # print('g_cam_forward: ', g_cam_forward)
 
-        d = -gaze_cam_origin[2] / g_cam_forward[2]
-        por_cam_x = gaze_cam_origin[0] + d * g_cam_forward[0]
-        por_cam_y = gaze_cam_origin[1] + d * g_cam_forward[1]
+        return np.concatenate((gaze_cam_origin, g_cam_forward))
 
-        return np.array([por_cam_x, por_cam_y])

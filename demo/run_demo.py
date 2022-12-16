@@ -129,7 +129,6 @@ def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
     pre_calibration_data = calibration.collect_data(
         cap, calibration_events.loc[calibration_events[STIMULI_NAME_COLUMN] ==
                                     PRE_CALIBRATION])
-
     # calibration video
     cap = cv2.VideoCapture(POST_CALIBRATION_VIDEO_PATH)
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -146,7 +145,6 @@ def read_callibration_data(calibration_events: pd.DataFrame) -> pd.DataFrame:
                      axis=0,
                      ignore_index=True)
     calibration_data.sort_values(by=['marker_x', 'marker_y'])
-    print('CALIBRATION_DATA: ', calibration_data)
 
     return calibration_data
 
@@ -172,9 +170,8 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=2000,
+                                     steps=3000,
                                      lr=1e-3)
-"""
 #################################
 # TRAINING ITERATION 2
 #################################
@@ -192,9 +189,10 @@ gaze_network = calibration.fine_tune(calibration_data,
                                      device,
                                      gaze_network,
                                      k,
-                                     steps=3000,
-                                     lr=1e-4)
+                                     steps=4000,
+                                     lr=1e-3)
 
+"""
 #################################
 # TRAINING ITERATION 3
 #################################
@@ -222,8 +220,7 @@ for path in TRACKING_VIDEO_PATH:
         data = processor.process_video(cap,
                                        monitor,
                                        device,
-                                       gaze_network,
-                                       convert_to_monitor=True)
+                                       gaze_network)
     else:
         print("Can not open video file")
 
